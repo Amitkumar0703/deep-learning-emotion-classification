@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mood Reader – text emotion detector</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,800&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+@property --accent { syntax: '<color>'; inherits: true; initial-value: #8b90ab; }
+:root { --ink: #1b1d2a; --paper: #f3f4f9; --muted: #5d6076; --speed: 9s; }
+body[data-emotion="sadness"]  { --accent: #4a6fd1; --speed: 14s; }
+body[data-emotion="joy"]      { --accent: #ffbf1f; --speed: 4s; }
+body[data-emotion="love"]     { --accent: #ff5c93; --speed: 6s; }
+body[data-emotion="anger"]    { --accent: #ec3b2b; --speed: 2.2s; }
+body[data-emotion="fear"]     { --accent: #7a4bc4; --speed: 3s; }
+body[data-emotion="surprise"] { --accent: #12c2b3; --speed: 5s; }
+body.thinking { --speed: 1.4s; }
+
+* { box-sizing: border-box; }
+body {
+  margin: 0; min-height: 100vh;
+  font-family: 'Instrument Sans', system-ui, sans-serif; color: var(--ink);
+  background: color-mix(in srgb, var(--accent) 22%, var(--paper));
+  transition: --accent .9s ease;
+  overflow-x: hidden;
+}
+.wrap {
+  max-width: 1120px; margin: 0 auto; padding: 32px 24px 64px;
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 56px; align-items: start;
+}
+.status { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; font-size: .85rem; color: var(--muted); }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: #c9a227; transition: background .3s; }
+.dot.ok { background: #1f9d55; } .dot.bad { background: #d13b3b; }
+
+/* left column */
+h1 {
+  font-family: 'Bricolage Grotesque', sans-serif; font-weight: 800;
+  font-size: clamp(2.4rem, 5.4vw, 4.2rem); line-height: 1; letter-spacing: -.03em; margin: 40px 0 16px;
+}
+.lede { color: var(--muted); font-size: 1.05rem; line-height: 1.55; max-width: 44ch; margin: 0 0 28px; }
+.box {
+  background: rgba(255,255,255,.72); backdrop-filter: blur(10px);
+  border: 2px solid transparent; border-radius: 22px; padding: 6px;
+  box-shadow: 0 10px 40px -18px color-mix(in srgb, var(--accent) 70%, #000);
+  transition: border-color .25s, box-shadow .25s;
+  overflow: hidden;
+}
+.box:focus-within { border-color: var(--accent); }
+textarea {
+  display: block; width: 100%; min-height: 150px; resize: vertical; border: 0; outline: 0; background: transparent;
+  font: 500 1.1rem/1.5 'Instrument Sans', sans-serif; color: var(--ink); padding: 16px 18px 6px;
+  border-radius: 16px 16px 0 0;
+}
+textarea::placeholder { color: #9295aa; }
+.bar { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px 10px 18px; gap: 12px; }
+.count { font-size: .82rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+button.go {
+  font: 600 1rem 'Instrument Sans', sans-serif; color: #fff; background: var(--ink);
+  border: 0; border-radius: 14px; padding: 13px 22px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 10px;
+  transition: transform .15s, background .4s, opacity .2s;
+}
+button.go:hover { transform: translateY(-2px); background: color-mix(in srgb, var(--accent) 55%, var(--ink)); }
+button.go:active { transform: scale(.97); }
+button.go:disabled { opacity: .5; cursor: wait; transform: none; }
+.spin { width: 15px; height: 15px; border-radius: 50%; border: 2px solid #fff5; border-top-color: #fff; display: none; animation: rot .7s linear infinite; }
+button.go.busy .spin { display: block; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.chip {
+  font: 500 .88rem 'Instrument Sans', sans-serif; color: var(--ink); background: rgba(255,255,255,.55);
+  border: 1px solid rgba(27,29,42,.14); border-radius: 999px; padding: 8px 14px; cursor: pointer;
+  transition: background .2s, transform .15s;
+}
+.chip:hover { background: #fff; transform: translateY(-2px) rotate(-1deg); }
+.err { min-height: 1.3em; margin: 12px 4px 0; color: #b3261e; font-size: .92rem; }
+
+/* right column */
+.stage { position: sticky; top: 24px; text-align: center; }
+.orb-area { position: relative; height: 360px; display: grid; place-items: center; }
+.blob {
+  position: absolute; width: min(320px, 72vw); aspect-ratio: 1;
+  background: radial-gradient(circle at 30% 28%, color-mix(in srgb, var(--accent) 45%, #fff), var(--accent) 70%);
+  border-radius: 60% 40% 55% 45% / 50% 60% 40% 50%;
+  box-shadow: 0 40px 90px -25px var(--accent);
+  animation: morph var(--speed) ease-in-out infinite;
+  transform: translate(var(--mx, 0px), var(--my, 0px));
+  transition: transform .25s ease-out;
+}
+.blob.ghost { width: min(380px, 84vw); opacity: .28; filter: blur(22px); animation-direction: reverse; }
+.face { position: relative; font-size: 6.2rem; line-height: 1; filter: drop-shadow(0 8px 12px rgba(0,0,0,.18)); }
+.face.pop { animation: pop .6s cubic-bezier(.2, 1.6, .4, 1); }
+.burst { position: absolute; left: 50%; top: 50%; font-size: 1.6rem; pointer-events: none; }
+.name { font-family: 'Bricolage Grotesque', sans-serif; font-weight: 800; font-size: 2.4rem; letter-spacing: -.02em; margin: 8px 0 2px; text-transform: capitalize; }
+.conf { color: var(--muted); font-size: 1rem; min-height: 1.5em; }
+.conf b { color: var(--ink); font-variant-numeric: tabular-nums; }
+
+.probs { margin-top: 26px; display: grid; gap: 10px; text-align: left; }
+.row { display: grid; grid-template-columns: 28px 78px 1fr 48px; align-items: center; gap: 10px; font-size: .95rem; }
+.row .lbl { text-transform: capitalize; font-weight: 500; }
+.row .pct { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+.track { height: 12px; background: rgba(27,29,42,.09); border-radius: 99px; overflow: hidden; }
+.fill { height: 100%; width: 0; border-radius: 99px; transition: width 1s cubic-bezier(.2, .9, .2, 1); }
+.row.top .lbl, .row.top .pct { color: var(--ink); font-weight: 700; }
+
+@keyframes morph {
+  0%, 100% { border-radius: 60% 40% 55% 45% / 50% 60% 40% 50%; rotate: 0deg; }
+  25% { border-radius: 42% 58% 38% 62% / 60% 42% 58% 40%; }
+  50% { border-radius: 52% 48% 63% 37% / 40% 55% 45% 60%; rotate: 12deg; }
+  75% { border-radius: 65% 35% 45% 55% / 55% 38% 62% 45%; }
+}
+@keyframes pop { 0% { transform: scale(.3) rotate(-20deg); } 100% { transform: scale(1) rotate(0); } }
+@keyframes rot { to { transform: rotate(360deg); } }
+
+@media (max-width: 860px) {
+  .wrap { grid-template-columns: 1fr; gap: 24px; }
+  h1 { margin-top: 12px; } .stage { position: static; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition-duration: .01ms !important; }
+}
+/* :focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; } */
+</style>
+</head>
+<body>
+<main class="wrap">
+  <div class="status"><span class="dot" id="dot"></span><span id="statusText">Checking server…</span></div>
+
+  <section>
+    <h1>How does this sentence feel?</h1>
+    <p class="lede">Type anything. A BiGRU neural network reads it and scores six emotions: sadness, joy, love, anger, fear and surprise.</p>
+
+    <div class="box">
+      <textarea id="input" maxlength="2000" placeholder="I can't believe they remembered my birthday…" aria-label="Sentence to analyze"></textarea>
+      <div class="bar">
+        <span class="count"><span id="n">0</span> / 2000 · Ctrl + Enter to run</span>
+        <button class="go" id="go"><span class="spin"></span><span id="goText">Read emotion</span></button>
+      </div>
+    </div>
+    <div class="err" id="err" role="alert"></div>
+
+    <div class="chips" id="chips"></div>
+  </section>
+
+  <section class="stage" id="stage" aria-live="polite">
+    <div class="orb-area">
+      <div class="blob ghost"></div>
+      <div class="blob"></div>
+      <div class="face" id="face">💭</div>
+    </div>
+    <div class="name" id="name">Waiting for a sentence</div>
+    <div class="conf" id="conf">Try an example or write your own.</div>
+    <div class="probs" id="probs"></div>
+  </section>
+</main>
+
+<script>
+const EMOTIONS = {
+  sadness:  { emoji: '😢', color: '#4a6fd1' },
+  joy:      { emoji: '😄', color: '#f2ac00' },
+  love:     { emoji: '❤️', color: '#ff5c93' },
+  anger:    { emoji: '😠', color: '#ec3b2b' },
+  fear:     { emoji: '😨', color: '#7a4bc4' },
+  surprise: { emoji: '😲', color: '#12c2b3' },
+};
+const EXAMPLES = [
+  'I feel so happy and excited today!',
+  'I miss her so much it hurts',
+  'How dare you lie to my face again',
+  'I am terrified of what comes next',
+  'Wow, I did not see that coming at all',
+  'I adore everything about you',
+];
+const $ = id => document.getElementById(id);
+const input = $('input'), go = $('go'), face = $('face');
+const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// build probability rows (empty state)
+$('probs').innerHTML = Object.entries(EMOTIONS).map(([k, v]) => `
+  <div class="row" data-k="${k}">
+    <span>${v.emoji}</span><span class="lbl">${k}</span>
+    <div class="track"><div class="fill" style="background:${v.color}"></div></div>
+    <span class="pct">0%</span>
+  </div>`).join('');
+
+// example chips
+$('chips').innerHTML = EXAMPLES.map(t => `<button class="chip">${t}</button>`).join('');
+$('chips').addEventListener('click', e => {
+  if (!e.target.classList.contains('chip')) return;
+  input.value = e.target.textContent; $('n').textContent = input.value.length;
+  analyze();
+});
+input.addEventListener('input', () => $('n').textContent = input.value.length);
+input.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') analyze(); });
+go.addEventListener('click', analyze);
+
+// blob follows the cursor a little
+if (!reduce) addEventListener('pointermove', e => {
+  const s = $('stage').style;
+  s.setProperty('--mx', ((e.clientX / innerWidth - .5) * 24) + 'px');
+  s.setProperty('--my', ((e.clientY / innerHeight - .5) * 24) + 'px');
+});
+
+// server health (Render free tier sleeps, so retry while it wakes up)
+async function checkHealth(tries = 0) {
+  try {
+    const r = await fetch('/health'); const d = await r.json();
+    $('dot').className = 'dot ' + (d.model_loaded ? 'ok' : '');
+    $('statusText').textContent = d.model_loaded ? 'Model ready' : 'Model loading…';
+    if (!d.model_loaded && tries < 20) setTimeout(() => checkHealth(tries + 1), 3000);
+  } catch {
+    $('dot').className = 'dot';
+    $('statusText').textContent = 'Server waking up, this can take up to a minute…';
+    if (tries < 20) setTimeout(() => checkHealth(tries + 1), 3000);
+    else { $('dot').className = 'dot bad'; $('statusText').textContent = 'Server unreachable'; }
+  }
+}
+checkHealth();
+
+// A small set of substrings that only show up from mashing adjacent keys.
+const KEYBOARD_RUNS = ['qwert','werty','ertyu','asdfg','sdfgh','dfghj','fghjk','zxcvb','xcvbn','qazwsx'];
+
+function isGibberishWord(raw) {
+  const w = raw.toLowerCase().replace(/[^a-z]/g, '');
+  if (w.length < 4) return false; // short words ("hi", "I'm") are fine either way
+  if (/(.)\1{3,}/.test(w)) return true;                       // aaaa, ssss...
+  if (KEYBOARD_RUNS.some(k => w.includes(k))) return true;     // qwerty-row mashing
+  const vowels = (w.match(/[aeiou]/g) || []).length;
+  if (vowels === 0) return true;                               // no vowel at all in a 4+ letter word
+  const longestConsonantRun = (w.match(/[^aeiou]+/g) || ['']).reduce((a, b) => Math.max(a, b.length), 0);
+  if (longestConsonantRun >= 5) return true;                   // e.g. "sfsfsfs"
+  if (vowels / w.length < 0.15) return true;                   // almost all consonants
+  return false;
+}
+
+function sentenceProblem(text) {
+  if (!text) return 'Write a sentence first.';
+  if (/^(https?:\/\/|www\.)\S+$/i.test(text)) return "That's a link, not a sentence — describe how you feel instead.";
+  if (/^[\w.+-]+@[\w-]+\.[a-z]{2,}$/i.test(text)) return "That's an email address, not a sentence.";
+  const letters = (text.match(/[a-zA-Z]/g) || []).length;
+  if (letters < 3) return 'Write at least a few real words.';
+  const words = text.split(/\s+/).filter(w => /[a-zA-Z]{2,}/.test(w));
+  if (words.length === 0) return 'Write at least one real word.';
+
+  const checked = words.map(w => w.replace(/[^a-zA-Z]/g, '')).filter(w => w.length >= 4);
+  if (checked.length) {
+    const gibberish = checked.filter(isGibberishWord);
+    if (gibberish.length / checked.length > 0.5) {
+      return "That doesn't look like real words — try an actual sentence.";
+    }
+  }
+  return null;
+}
+
+async function analyze() {
+  const text = input.value.trim();
+  $('err').textContent = '';
+  const problem = sentenceProblem(text);
+  if (problem) { $('err').textContent = problem; input.focus(); return; }
+
+  go.disabled = true; go.classList.add('busy'); $('goText').textContent = 'Reading…';
+  document.body.classList.add('thinking');
+  try {
+    const res = await fetch('/predict', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }),
+    });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      throw new Error(typeof e.detail === 'string' ? e.detail : 'Request failed (' + res.status + ').');
+    }
+    show(await res.json());
+  } catch (err) {
+    $('err').textContent = err.message || 'Could not reach the server. Try again.';
+  } finally {
+    go.disabled = false; go.classList.remove('busy'); $('goText').textContent = 'Read emotion';
+    document.body.classList.remove('thinking');
+  }
+}
+
+function show(d) {
+  const emo = d.predicted_emotion, meta = EMOTIONS[emo];
+  document.body.dataset.emotion = emo;
+  face.textContent = meta.emoji;
+  face.classList.remove('pop'); void face.offsetWidth; face.classList.add('pop');
+  $('name').textContent = emo;
+
+  countUp($('conf'), d.confidence * 100);
+  
+  const probs = d.all_probabilites || {};
+
+  const order = Object.entries(probs).sort((a, b) => b[1] - a[1]).map(x => x[0]);
+  document.querySelectorAll('.row').forEach(row => {
+    const k = row.dataset.k, p =(probs[k] || 0)* 100;
+    row.classList.toggle('top', k === emo);
+    row.style.order = order.indexOf(k);
+    row.querySelector('.fill').style.width = Math.max(p, 1.5) + '%';
+    row.querySelector('.pct').textContent = p.toFixed(1) + '%';
+  });
+  if (!reduce) burst(meta.emoji);
+}
+
+function countUp(el, target) {
+  const t0 = performance.now();
+  (function tick(t) {
+    const k = Math.min((t - t0) / 800, 1), v = target * (1 - Math.pow(1 - k, 3));
+    el.innerHTML = 'Confidence <b>' + v.toFixed(1) + '%</b>';
+    if (k < 1) requestAnimationFrame(tick);
+  })(t0);
+}
+
+function burst(emoji) {
+  const area = document.querySelector('.orb-area');
+  for (let i = 0; i < 14; i++) {
+    const s = document.createElement('span');
+    s.className = 'burst'; s.textContent = emoji; area.appendChild(s);
+    const a = Math.random() * Math.PI * 2, r = 130 + Math.random() * 110;
+    s.animate([
+      { transform: 'translate(-50%,-50%) scale(.4)', opacity: 1 },
+      { transform: `translate(calc(-50% + ${Math.cos(a) * r}px), calc(-50% + ${Math.sin(a) * r}px)) scale(${.8 + Math.random()}) rotate(${Math.random() * 60 - 30}deg)`, opacity: 0 },
+    ], { duration: 900 + Math.random() * 500, easing: 'cubic-bezier(.2,.8,.3,1)' }).onfinish = () => s.remove();
+  }
+}
+</script>
+</body>
+</html>
